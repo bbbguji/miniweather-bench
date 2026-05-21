@@ -1,0 +1,18 @@
+# Generated artifacts (per-user)
+builds/
+results/
+logs/
+miniWeather/
+external/
+
+# Editor / OS
+*.swp
+*.bak
+.DS_Store
+__pycache__/
+*.pyc
+
+# Tarballs
+*.tar.gz
+*.tar
+venv/

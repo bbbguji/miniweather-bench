@@ -1,0 +1,38 @@
+# ============================================================
+# Per-user artifacts (each user generates these from sbatch)
+# ============================================================
+# Compiled binaries (architecture-specific, must rebuild per machine)
+builds/
+
+# User's own runs (gitignored; baseline data lives in baseline_reference/)
+results/
+
+# SLURM logs and per-run raw outputs
+logs/
+
+# External dependencies (PnetCDF, etc.)
+external/
+
+# Upstream miniWeather clone (fetched by setup.sh)
+miniWeather/
+
+# Python virtual env
+venv/
+
+# ============================================================
+# Editor / OS
+# ============================================================
+*.swp
+*.bak
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+
+# ============================================================
+# Tarballs (avoid accidental commits of distribution archives)
+# ============================================================
+*.tar.gz
+*.tar
+*.zip
