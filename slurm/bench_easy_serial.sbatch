@@ -2,10 +2,10 @@
 #SBATCH --account=ACD115053
 #SBATCH --partition=nycugpu_queue
 #SBATCH --job-name=mw_e_ser
-#SBATCH --nodes=2
-#SBATCH --ntasks-per-node=32
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=1
-#SBATCH --gpus-per-node=8
+#SBATCH --gpus-per-node=2
 #SBATCH --time=0-00:30:00
 #SBATCH -o logs/easy_serial_%j.log
 #SBATCH -e logs/easy_serial_%j.err
