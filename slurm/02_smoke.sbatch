@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus-per-node=2
-#SBATCH --time=0-00:15:00
+#SBATCH --time=0-00:59:00
 #SBATCH -o logs/02_smoke_%j.log
 #SBATCH -e logs/02_smoke_%j.err
 

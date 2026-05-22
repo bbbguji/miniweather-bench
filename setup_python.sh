@@ -1,55 +1,102 @@
 #!/bin/bash
-# Sets up a Python virtualenv with pandas/numpy/matplotlib for analyze.py.
-# Run once on the login node after setup.sh.
+# Sets up a conda environment with packages for analyze.py + make_video.py.
+#
+# Why conda env (not venv): cluster's system python is 3.6 (EOL) and
+# `python -m venv` would inherit that. Loading `miniforge/24.7.1-2` puts
+# conda on PATH but doesn't change `python3` itself — we have to ask
+# conda to *create* a new env with a newer Python.
 #
 # Usage:
 #   bash setup_python.sh
 #
-# Then to use:
-#   source venv/bin/activate
-#   python3 scripts/analyze.py
+# Then in every shell:
+#   source activate.sh
+
 set -e
 
 BASE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$BASE"
 
-echo "==== Python venv setup ===="
+ENV_NAME=${ENV_NAME:-mw}
+ENV_PATH=$BASE/conda_env
+PY_VER=${PY_VER:-3.11}
 
-# Find a usable system python
-PY=""
-for cand in python3 python3.9 python3.10 python3.11 python3.8; do
-  if command -v $cand >/dev/null 2>&1; then
-    PY=$cand
+echo "==== Loading conda module ===="
+
+loaded=""
+for mod in miniforge/24.7.1-2 miniconda3/conda24.5.0_py3.9; do
+  if module load "$mod" 2>/dev/null; then
+    loaded="$mod"
+    echo "  Loaded: $mod"
     break
   fi
 done
-[ -n "$PY" ] || { echo "ERROR: no python3 found"; exit 1; }
-echo "Using interpreter: $(command -v $PY) ($(${PY} --version 2>&1))"
+[ -n "$loaded" ] || { echo "ERROR: no conda module"; exit 1; }
 
-# Create venv
-if [ ! -d venv ]; then
-  $PY -m venv venv
-  echo "Created venv/"
-else
-  echo "venv/ already exists, will upgrade packages"
-fi
+# `conda` should now be on PATH
+command -v conda >/dev/null || { echo "ERROR: conda not in PATH"; exit 1; }
+echo "  conda: $(command -v conda)"
 
-# Activate and install
-source venv/bin/activate
-python -m pip install --upgrade pip --quiet
-python -m pip install --quiet \
-  pandas \
-  numpy \
-  matplotlib
+# Initialize conda for this shell session (needed for `conda activate`)
+# This evaluates conda's hook script - cleaner than `eval "$(conda shell.bash hook)"`
+# because the module already set CONDA_EXE
+source "$(conda info --base)/etc/profile.d/conda.sh"
 
 echo
-echo "==== Installed ===="
-python -c "import pandas, numpy, matplotlib; \
-  print('pandas:', pandas.__version__); \
-  print('numpy: ', numpy.__version__); \
-  print('matplotlib:', matplotlib.__version__)"
+echo "==== Creating/updating env at $ENV_PATH ===="
+if [ -d "$ENV_PATH" ]; then
+  echo "  $ENV_PATH already exists; updating packages"
+else
+  conda create --prefix "$ENV_PATH" --yes \
+    --channel conda-forge --override-channels \
+    "python=$PY_VER"
+  echo "  Created env at $ENV_PATH"
+fi
+
+# Activate the env
+conda activate "$ENV_PATH"
+
+ver=$(python -c "import sys; print('{}.{}'.format(*sys.version_info[:2]))")
+echo "  Python: $(command -v python) ($ver)"
+
+echo
+echo "==== Installing packages ===="
+# conda-forge has prebuilt netCDF4 with HDF5 — no source compile needed
+conda install --prefix "$ENV_PATH" --yes --quiet \
+  --channel conda-forge --override-channels \
+  pandas \
+  numpy \
+  matplotlib \
+  netcdf4 \
+  imageio-ffmpeg
+
+echo
+echo "==== Verifying ===="
+python <<'PY_EOF'
+import sys
+print(f"python: {sys.version.split()[0]}")
+mods = ["pandas", "numpy", "matplotlib", "netCDF4", "imageio_ffmpeg"]
+ok = True
+for m in mods:
+    try:
+        mod = __import__(m)
+        v = getattr(mod, "__version__", "?")
+        print(f"  {m:18s} {v}")
+    except Exception as e:
+        print(f"  {m:18s} FAIL: {e}")
+        ok = False
+if not ok:
+    sys.exit(1)
+import imageio_ffmpeg
+print(f"  ffmpeg:           {imageio_ffmpeg.get_ffmpeg_exe()}")
+PY_EOF
 
 echo
 echo "==== Done ===="
-echo "Activate later with:  source venv/bin/activate"
-echo "Run analyze with:     python3 scripts/analyze.py"
+echo
+echo "Use in every new shell:"
+echo "  source activate.sh"
+echo
+echo "Then run:"
+echo "  python3 scripts/analyze.py"
+echo "  python3 scripts/make_video.py"
