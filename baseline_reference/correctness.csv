@@ -1,0 +1,5 @@
+timestamp,variant,size,nx,nz,sim_time,nodes,ranks,threads_per_rank,total_cores,run_id,wall_time_s,d_mass,d_te,passed,raw_log
+2026-05-27T09:47:11+08:00,serial,canonical,200,100,400,1,1,1,1,1,12.2653,-7.422399e-15,-3.978093e-05,true,/work/u6940591/miniWeather-bench/logs/runs/serial_canonical_n1_r1_t1_rep1.out
+2026-05-27T09:47:13+08:00,openmp,canonical,200,100,400,1,1,32,32,1,0.729702,2.734568e-15,-3.978093e-05,true,/work/u6940591/miniWeather-bench/logs/runs/openmp_canonical_n1_r1_t32_rep1.out
+2026-05-27T09:47:17+08:00,mpi,canonical,200,100,400,1,32,1,32,1,0.539449,7.813051e-16,-3.978093e-05,true,/work/u6940591/miniWeather-bench/logs/runs/mpi_canonical_n1_r32_t1_rep1.out
+2026-05-27T09:47:19+08:00,hybrid,canonical,200,100,400,1,4,8,32,1,0.662602,3.125220e-15,-3.978093e-05,true,/work/u6940591/miniWeather-bench/logs/runs/hybrid_canonical_n1_r4_t8_rep1.out

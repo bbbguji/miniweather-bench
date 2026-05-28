@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH --account=ACD115053
 #SBATCH --partition=nycugpu_queue
-#SBATCH --job-name=mw_m_hyb
-#SBATCH --nodes=1
+#SBATCH --job-name=mw_h_mpi2
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=32
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus-per-node=8
 #SBATCH --time=0-00:55:00
-#SBATCH -o logs/medium_hybrid_%j.log
-#SBATCH -e logs/medium_hybrid_%j.err
+#SBATCH -o logs/hard_mpi_2n_%j.log
+#SBATCH -e logs/hard_mpi_2n_%j.err
 
-# Single-node benchmark: medium size, hybrid variant. NREPS=3.
+# Two-node benchmark: hard size, mpi variant. NREPS=3.
 set +e
 module purge
 module load gcc10/10.2.1
@@ -25,12 +25,11 @@ cd "$BASE"
 source "$BASE/scripts/run_one.sh"
 init_results_csv
 NREPS=${NREPS:-3}
-echo "==== bench_medium_hybrid  NREPS=$NREPS  $(date) ===="
+echo "==== bench2n_hard_mpi  NREPS=$NREPS  $(date) ===="
 
 
-for cfg in "2 16" "4 8" "8 4" "16 2"; do
-  read ranks threads <<< $cfg
-  for rep in $(seq 1 $NREPS); do run_hybrid medium $ranks $threads $rep; done
+for ranks in 32 64; do
+  for rep in $(seq 1 $NREPS); do run_mpi hard $ranks $rep 2; done
 done
 
 echo "==== Done: $(date)   rows now in CSV: $(tail -n +2 $RESULTS | wc -l) ===="

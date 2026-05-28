@@ -6,11 +6,13 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus-per-node=2
-#SBATCH --time=0-00:25:00
+#SBATCH --time=0-00:30:00
 #SBATCH -o logs/01_compile_%j.log
 #SBATCH -e logs/01_compile_%j.err
 
-# Build serial/mpi/openmp variants at 3 sizes: easy, medium, hard.
+# Build serial/mpi/openmp variants at 4 sizes:
+#   easy / medium / hard  (benchmark sizes; sim_time=20 each)
+#   canonical             (upstream strict-correctness test only)
 
 set -e
 module purge
@@ -21,7 +23,7 @@ module load cmake 2>/dev/null || module load cmake3 2>/dev/null || {
 command -v cmake >/dev/null || { echo "ERROR: cmake not in PATH"; exit 1; }
 
 BASE=${BASE:-$SLURM_SUBMIT_DIR}
-[ -n "$BASE" ] && [ -d "$BASE" ] || { echo "ERROR: BASE invalid: '$BASE'"; exit 1; }
+[ -n "$BASE" ] && [ -d "$BASE" ] || { echo "ERROR: BASE invalid"; exit 1; }
 [ -f "$BASE/config.sh" ] && source "$BASE/config.sh"
 
 PNETCDF_DIR=${PNETCDF_DIR:-$BASE/external/pnetcdf_install}
@@ -31,7 +33,7 @@ cd "$BASE"
 mkdir -p logs results
 
 [ -d "$SRC" ] || { echo "ERROR: $SRC missing. Run setup.sh first."; exit 1; }
-[ -d "$PNETCDF_DIR/lib" ] || { echo "ERROR: pnetcdf missing at $PNETCDF_DIR. Run 00_pnetcdf first."; exit 1; }
+[ -d "$PNETCDF_DIR/lib" ] || { echo "ERROR: pnetcdf missing. Run 00_pnetcdf first."; exit 1; }
 
 build_size() {
   local label=$1 nx=$2 nz=$3 sim_time=$4
@@ -56,11 +58,11 @@ build_size() {
   done
 }
 
-build_size easy   400  200  20
-build_size medium 800  400  20
-build_size hard   1600 800  12
-build_size canonical 200 100 400
+build_size easy      1000  500 20
+build_size medium    1600  800 20
+build_size hard      2000 1000 20
+build_size canonical  200  100 400
 
 echo
-echo "==== BUILDS DONE ===="
+echo "==== ALL BUILDS DONE ===="
 ls -lh "$BASE"/builds/*/serial "$BASE"/builds/*/mpi "$BASE"/builds/*/openmp 2>&1 | tee "$BASE/results/build_summary.txt"
