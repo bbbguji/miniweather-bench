@@ -11,17 +11,11 @@ init_results_csv() {
   mkdir -p "$(dirname $RESULTS)"
   mkdir -p "$BASE/logs/runs"
   if [ ! -f "$RESULTS" ]; then
-    echo "timestamp,variant,size,nx,nz,sim_time,nodes,ranks,threads_per_rank,total_cores,run_id,wall_time_s,d_mass,d_te,passed,raw_log" > "$RESULTS"
+    echo "timestamp,variant,size,nx,nz,sim_time,nodes,ranks,threads_per_rank,total_cores,gpus,run_id,wall_time_s,d_mass,d_te,passed,raw_log" > "$RESULTS"
     echo "Initialized $RESULTS"
   fi
 }
 
-# All three benchmark sizes use the same sim_time=20 so wall-time scales
-# purely with NX² × NZ. Calibrated serial-time predictions on this cluster:
-#   easy   (1000× 500) ~ 1.3 min
-#   medium (1600× 800) ~ 5.3 min
-#   hard   (2000×1000) ~ 10.3 min
-#   canonical (200×100, sim_time=400) — only for upstream strict check
 get_size_params() {
   case "$1" in
     easy)      echo "1000  500 20"  ;;
@@ -32,7 +26,6 @@ get_size_params() {
   esac
 }
 
-# Cores must be in {1,2,4,8,16,32,64} (cluster QOS = 64 max)
 _assert_cores_ok() {
   case "$1" in
     1|2|4|8|16|32|64) return 0 ;;
@@ -43,9 +36,9 @@ _assert_cores_ok() {
 parse_and_log() {
   local output="$1"
   local variant="$2" size="$3" nx="$4" nz="$5" st="$6"
-  local nodes="$7" ranks="$8" threads="$9" total="${10}" rid="${11}"
+  local nodes="$7" ranks="$8" threads="$9" total="${10}" gpus="${11}" rid="${12}"
 
-  local tag="${variant}_${size}_n${nodes}_r${ranks}_t${threads}_rep${rid}"
+  local tag="${variant}_${size}_n${nodes}_r${ranks}_t${threads}_g${gpus}_rep${rid}"
   local raw_log="$BASE/logs/runs/${tag}.out"
   echo "$output" > "$raw_log"
 
@@ -55,14 +48,12 @@ parse_and_log() {
   wall=${wall:-NaN}; dmass=${dmass:-NaN}; dte=${dte:-NaN}
 
   if [ "$wall" = "NaN" ] || [ "$dmass" = "NaN" ] || [ "$dte" = "NaN" ]; then
-    echo "    !! PARSE FAILED. Last 20 lines of $raw_log:"
-    echo "    ------ BEGIN RAW ------"
-    tail -20 "$raw_log" | sed 's/^/    | /'
-    echo "    ------ END RAW   ------"
+    echo "    !! PARSE FAILED. Last 30 lines of $raw_log:"
+    tail -30 "$raw_log" | sed 's/^/    | /'
   fi
 
-  # Singleton-mode detector for MPI
-  if [[ "$variant" =~ ^mpi ]] && [ "$ranks" -gt 1 ] && [ -f "$raw_log" ]; then
+  # MPI singleton-mode detector
+  if [[ "$variant" =~ ^(mpi|openmp45|openacc) ]] && [ "$ranks" -gt 1 ] && [ -f "$raw_log" ]; then
     local nx_count=$(grep -c "nx_glob" "$raw_log" 2>/dev/null | tr -d '[:space:]')
     nx_count=${nx_count:-0}
     if [[ "$nx_count" =~ ^[0-9]+$ ]] && [ "$nx_count" -gt 1 ]; then
@@ -84,10 +75,13 @@ except Exception:
   fi
 
   local ts=$(date -Iseconds)
-  echo "$ts,$variant,$size,$nx,$nz,$st,$nodes,$ranks,$threads,$total,$rid,$wall,$dmass,$dte,$passed,$raw_log" >> "$RESULTS"
+  echo "$ts,$variant,$size,$nx,$nz,$st,$nodes,$ranks,$threads,$total,$gpus,$rid,$wall,$dmass,$dte,$passed,$raw_log" >> "$RESULTS"
   echo "    -> wall=$wall s | dmass=$dmass | dte=$dte | passed=$passed"
 }
 
+# ============================================================
+# CPU variants (build with gcc10 + openmpi 5)
+# ============================================================
 run_serial() {
   local size=$1 rep=$2
   read nx nz st <<< $(get_size_params $size)
@@ -96,7 +90,7 @@ run_serial() {
   echo "[serial / $size / rep $rep]"
   unset OMP_NUM_THREADS
   local out=$(srun $SRUN_MPI --nodes=1 --ntasks=1 --cpus-per-task=1 --cpu-bind=cores "$exe" 2>&1)
-  parse_and_log "$out" serial $size $nx $nz $st 1 1 1 1 $rep
+  parse_and_log "$out" serial $size $nx $nz $st 1 1 1 1 0 $rep
 }
 
 run_openmp() {
@@ -108,7 +102,7 @@ run_openmp() {
   echo "[openmp / $size / ${threads}T / rep $rep]"
   export OMP_NUM_THREADS=$threads OMP_PLACES=cores OMP_PROC_BIND=close
   local out=$(srun $SRUN_MPI --nodes=1 --ntasks=1 --cpus-per-task=$threads --cpu-bind=cores "$exe" 2>&1)
-  parse_and_log "$out" openmp $size $nx $nz $st 1 1 $threads $threads $rep
+  parse_and_log "$out" openmp $size $nx $nz $st 1 1 $threads $threads 0 $rep
 }
 
 run_mpi() {
@@ -124,7 +118,7 @@ run_mpi() {
   local rpn=$((ranks / nodes))
   local out=$(srun $SRUN_MPI --nodes=$nodes --ntasks=$ranks --ntasks-per-node=$rpn \
                  --cpus-per-task=1 --cpu-bind=cores "$exe" 2>&1)
-  parse_and_log "$out" $label $size $nx $nz $st $nodes $ranks 1 $ranks $rep
+  parse_and_log "$out" $label $size $nx $nz $st $nodes $ranks 1 $ranks 0 $rep
 }
 
 run_hybrid() {
@@ -141,5 +135,34 @@ run_hybrid() {
   local rpn=$((ranks / nodes))
   local out=$(srun $SRUN_MPI --nodes=$nodes --ntasks=$ranks --ntasks-per-node=$rpn \
                  --cpus-per-task=$threads --cpu-bind=cores "$exe" 2>&1)
-  parse_and_log "$out" $label $size $nx $nz $st $nodes $ranks $threads $total $rep
+  parse_and_log "$out" $label $size $nx $nz $st $nodes $ranks $threads $total 0 $rep
 }
+
+# ============================================================
+# GPU variants (build with nvhpc, one MPI rank per GPU)
+#
+# The binaries live in builds/<size>_gpu/. They are MPI binaries with
+# OpenMP target offload (openmp45) or OpenACC (openacc).
+# Convention: ranks == gpus. Each rank takes 4 CPUs (QOS rule).
+# ============================================================
+_run_gpu() {
+  local variant=$1 size=$2 ranks=$3 rep=$4 nodes=${5:-1}
+  read nx nz st <<< $(get_size_params $size)
+  local exe=$BASE/builds/${size}_gpu/$variant
+  [ -x "$exe" ] || { echo "  [skip] missing $exe"; return; }
+  local label="$variant"
+  [ $nodes -gt 1 ] && label="${variant}_${nodes}node"
+  local gpus_per_node=$((ranks / nodes))
+  echo "[$label / $size / ${ranks}R (${gpus_per_node}GPU/node × ${nodes}N) / rep $rep]"
+  unset OMP_NUM_THREADS
+  local rpn=$((ranks / nodes))
+  # Each MPI rank gets its own GPU - this is handled by the runtime
+  # via CUDA_VISIBLE_DEVICES / OMPI_COMM_WORLD_LOCAL_RANK mapping.
+  local out=$(srun $SRUN_MPI --nodes=$nodes --ntasks=$ranks --ntasks-per-node=$rpn \
+                 --cpus-per-task=4 --gpus-per-task=1 \
+                 "$exe" 2>&1)
+  parse_and_log "$out" $label $size $nx $nz $st $nodes $ranks 1 $ranks $ranks $rep
+}
+
+run_openmp45() { _run_gpu openmp45 "$@"; }
+run_openacc()  { _run_gpu openacc  "$@"; }

@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Convert miniWeather's output_<size>.nc into an animated video.
+Convert miniWeather's output_<size>_<variant>.nc into an animated video.
 
 Run on the login node after `sbatch slurm/make_video_data.sbatch`.
 
 Usage:
     source activate.sh
 
-    # Default: read results/viz/output_easy.nc -> animation_easy.mp4
+    # default: easy + mpi (CPU)
     python3 scripts/make_video.py
 
-    # Pick a specific size
+    # pick size and/or variant
     python3 scripts/make_video.py --size medium
-    python3 scripts/make_video.py --size hard
+    python3 scripts/make_video.py --size hard --variant openacc
+    python3 scripts/make_video.py --size medium --variant openmp45
 
-    # Render only one variable, higher FPS
-    python3 scripts/make_video.py --size medium --var theta --fps 15
+    # single variable, higher FPS
+    python3 scripts/make_video.py --size medium --variant mpi --var theta --fps 15
 
-    # Custom paths
+    # custom paths
     python3 scripts/make_video.py --nc /path/to/output.nc --out /path/to/anim.mp4
 """
 
@@ -27,13 +28,12 @@ from pathlib import Path
 
 import numpy as np
 
-# Headless backend (cluster login nodes have no DISPLAY)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter, PillowWriter
 
-# Point matplotlib at imageio_ffmpeg's bundled binary
+# Headless ffmpeg
 try:
     import imageio_ffmpeg
     matplotlib.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
@@ -79,7 +79,7 @@ def load_nc(nc_path):
     return t, fields
 
 
-def render(t, fields, out_path, fps, single_var=None, size_label=None):
+def render(t, fields, out_path, fps, single_var=None, title_prefix=""):
     if single_var:
         if single_var not in fields:
             print(f"ERROR: variable '{single_var}' not in NC.", file=sys.stderr)
@@ -116,14 +116,13 @@ def render(t, fields, out_path, fps, single_var=None, size_label=None):
     for ax in axes[len(plot_vars):]:
         ax.set_visible(False)
 
-    size_prefix = f"[{size_label}] " if size_label else ""
     suptitle = fig.suptitle("", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
     def update(frame):
         for im, v in zip(images, plot_vars):
             im.set_array(fields[v][frame])
-        suptitle.set_text(f"{size_prefix}miniWeather — frame {frame+1}/{n_frames} — t = {t[frame]:.2f} s")
+        suptitle.set_text(f"{title_prefix}miniWeather — frame {frame+1}/{n_frames} — t = {t[frame]:.2f} s")
         return images + [suptitle]
 
     anim = FuncAnimation(fig, update, frames=n_frames,
@@ -154,44 +153,47 @@ def render(t, fields, out_path, fps, single_var=None, size_label=None):
 def main():
     ap = argparse.ArgumentParser(description="Animate miniWeather output NetCDF")
     ap.add_argument("--size", choices=["easy", "medium", "hard"], default="easy",
-                    help="Which size to animate (default: easy). "
-                         "Uses results/viz/output_<size>.nc as input "
-                         "and writes results/viz/animation_<size>.mp4.")
+                    help="Which size to animate (default: easy)")
+    ap.add_argument("--variant", default="mpi",
+                    choices=["serial", "mpi", "openmp", "openmp45", "openacc"],
+                    help="Which variant produced the NC (default: mpi)")
     ap.add_argument("--nc",  default=None,
-                    help="Override NetCDF input path (default: results/viz/output_<size>.nc)")
+                    help="Override NetCDF input (default: results/viz/output_<size>_<variant>.nc)")
     ap.add_argument("--out", default=None,
-                    help="Override output path (default: results/viz/animation_<size>.mp4)")
+                    help="Override output path (default: results/viz/animation_<size>_<variant>.mp4)")
     ap.add_argument("--var", default=None,
-                    help="Render single variable only (dens|uwnd|wwnd|theta). "
-                         "Default: all four in 2x2 grid.")
+                    help="Render single variable only (dens|uwnd|wwnd|theta)")
     ap.add_argument("--fps", type=int, default=10,
                     help="Frames per second (default: %(default)d)")
     args = ap.parse_args()
 
-    nc_path = Path(args.nc) if args.nc else Path(f"results/viz/output_{args.size}.nc")
+    nc_path = Path(args.nc) if args.nc else \
+        Path(f"results/viz/output_{args.size}_{args.variant}.nc")
 
     if args.out:
         out_path = Path(args.out)
     else:
         suffix = f"_{args.var}" if args.var else ""
-        out_path = Path(f"results/viz/animation_{args.size}{suffix}.mp4")
+        out_path = Path(f"results/viz/animation_{args.size}_{args.variant}{suffix}.mp4")
 
     if not nc_path.exists():
         print(f"ERROR: {nc_path} not found.", file=sys.stderr)
-        print(f"  Run first:  VIZ_SIZE={args.size} sbatch slurm/make_video_data.sbatch", file=sys.stderr)
-        # List what IS available, helpfully
+        print(f"  Run first:", file=sys.stderr)
+        print(f"    VIZ_SIZE={args.size} VIZ_VARIANT={args.variant} \\", file=sys.stderr)
+        print(f"        sbatch slurm/make_video_data.sbatch", file=sys.stderr)
         viz_dir = Path("results/viz")
         if viz_dir.exists():
             avail = sorted(viz_dir.glob("output_*.nc"))
             if avail:
-                print("  Available:", file=sys.stderr)
+                print("  Available NCs:", file=sys.stderr)
                 for f in avail:
                     print(f"    {f}", file=sys.stderr)
         sys.exit(1)
 
     t, fields = load_nc(nc_path)
+    title_prefix = f"[{args.size} / {args.variant}] "
     out_path = render(t, fields, out_path, args.fps,
-                      single_var=args.var, size_label=args.size)
+                      single_var=args.var, title_prefix=title_prefix)
     print()
     print("Copy to local machine to view:")
     print(f"  scp <user>@<host>:{out_path.resolve()} ./")

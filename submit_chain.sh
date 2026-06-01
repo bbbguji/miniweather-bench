@@ -73,6 +73,16 @@ JOBS=(
   "bench2n_medium_hybrid"
   "bench2n_hard_mpi"
   "bench2n_hard_hybrid"
+    "bench_easy_openmp45"
+    "bench_easy_openacc"
+    "bench_medium_openmp45"
+    "bench_medium_openacc"
+    "bench_hard_openmp45"
+    "bench_hard_openacc"
+    "bench2n_medium_openmp45"
+    "bench2n_medium_openacc"
+    "bench2n_hard_openmp45"
+    "bench2n_hard_openacc"
 )
 
 # ----------------------------------------------------------------------
@@ -304,7 +314,7 @@ total_done=$(wc -l < "$COMPLETED_FILE" 2>/dev/null || echo 0)
 echo "  Overall progress: $total_done / ${#JOBS[@]} steps"
 if [ -f "$BASE/results/runs.csv" ]; then
   echo "  CSV rows: $(tail -n +2 $BASE/results/runs.csv | wc -l) total"
-  echo "  Passed:   $(tail -n +2 $BASE/results/runs.csv | awk -F, '$15=="true"' | wc -l)"
+  echo "  Passed:   $(tail -n +2 $BASE/results/runs.csv | awk -F, '$16=="true"' | wc -l)"
 fi
 
 if [ "$n_transient" -gt 0 ] || [ "$total_done" -lt "${#JOBS[@]}" ]; then

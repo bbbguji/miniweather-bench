@@ -23,7 +23,6 @@ BASE=${BASE:-$SLURM_SUBMIT_DIR}
 [ -f "$BASE/config.sh" ] && source "$BASE/config.sh"
 
 export BASE
-# Smoke gets its own CSV (NOT runs.csv) — recreated each run
 export RESULTS=$BASE/results/smoke.csv
 
 cd "$BASE"
@@ -42,11 +41,15 @@ run_mpi    easy 8 1
 run_mpi    easy 32 1
 run_hybrid easy 4 8 1
 
+# CSV columns (17 total in current schema):
+#  1=timestamp 2=variant 3=size 4=nx 5=nz 6=sim_time 7=nodes 8=ranks
+#  9=threads_per_rank 10=total_cores 11=gpus 12=run_id 13=wall_time_s
+# 14=d_mass 15=d_te 16=passed 17=raw_log
 echo
 echo "==== Smoke summary (this run only) ===="
-tail -n +2 "$RESULTS" | awk -F, '{printf "%-8s %2dR x %2dT  wall=%-8s passed=%s\n", $2,$8,$9,$12,$15}'
+tail -n +2 "$RESULTS" | awk -F, '{printf "%-8s %2dR x %2dT  wall=%-8s passed=%s\n", $2,$8,$9,$13,$16}'
 
-fail=$(tail -n +2 "$RESULTS" | awk -F, '$15!="true"' | wc -l)
+fail=$(tail -n +2 "$RESULTS" | awk -F, '$16!="true"' | wc -l)
 total=$(tail -n +2 "$RESULTS" | wc -l)
 echo "Validation: $((total-fail))/$total passed"
 [ $fail -gt 0 ] && { echo "ERROR: smoke failures"; exit 1; }
