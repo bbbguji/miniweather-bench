@@ -70,6 +70,79 @@ source activate.sh
 python3 scripts/analyze.py
 ```
 
+## Run a single benchmark (fast iteration)
+
+Instead of the full chain, run any individual sbatch file directly. The naming pattern is `bench[2n]_<size>_<variant>.sbatch`:
+
+```bash
+# Pattern: 1-node CPU benches
+sbatch slurm/bench_easy_serial.sbatch       # serial only
+sbatch slurm/bench_easy_openmp.sbatch       # OpenMP sweep (1..32 threads)
+sbatch slurm/bench_easy_mpi.sbatch          # MPI sweep (1..32 ranks)
+sbatch slurm/bench_easy_hybrid.sbatch       # MPI+OpenMP hybrid
+
+# Pattern: 1-node GPU benches
+sbatch slurm/bench_medium_openacc.sbatch    # OpenACC (1, 2, 4, 8 GPUs)
+sbatch slurm/bench_medium_openmp45.sbatch   # OpenMP target offload
+
+# Pattern: 2-node benches (cross-node scaling)
+sbatch slurm/bench2n_hard_mpi.sbatch        # MPI on 64 cores × 2 nodes
+sbatch slurm/bench2n_hard_openacc.sbatch    # OpenACC on 16 GPUs × 2 nodes
+```
+
+Every result appends to `results/runs.csv`, so you can keep accumulating data and re-run `python3 scripts/analyze.py` anytime to refresh plots and tables.
+
+### Match the file name to what you want
+
+| if you want to test… | use this file |
+|---------------------|---------------|
+| just serial baseline at small size | `bench_easy_serial.sbatch` |
+| MPI scaling 1→32 ranks at medium | `bench_medium_mpi.sbatch` |
+| OpenMP threads 1→32 at hard | `bench_hard_openmp.sbatch` |
+| MPI+OpenMP hybrid configurations | `bench_<size>_hybrid.sbatch` |
+| Cross-node MPI scaling | `bench2n_<size>_mpi.sbatch` |
+| Single-GPU vs multi-GPU offload | `bench_<size>_openacc.sbatch` or `bench_<size>_openmp45.sbatch` |
+| Multi-GPU across 2 nodes | `bench2n_<size>_openacc.sbatch` or `bench2n_<size>_openmp45.sbatch` |
+
+Sizes: `easy` / `medium` / `hard`.
+Variants: `serial` / `mpi` / `openmp` / `hybrid` / `openacc` / `openmp45`.
+
+### Tune the rep count
+
+Every bench file uses `NREPS=${NREPS:-3}`, so you can override for a quick check or a longer measurement:
+
+```bash
+NREPS=1 sbatch slurm/bench_easy_mpi.sbatch        # 1 rep — fast smoke
+NREPS=5 sbatch slurm/bench_hard_openacc.sbatch    # 5 reps — tighter stats
+```
+
+### After a single run
+
+```bash
+# Watch progress
+squeue -u $USER
+tail -f logs/<size>_<variant>_<jobid>.log
+
+# When done, refresh analysis
+source activate.sh
+python3 scripts/analyze.py
+```
+
+`analyze.py` reads everything currently in `results/runs.csv`, so partial sweeps work — the plots just show whichever (size, variant) combinations have data so far.
+
+### Remove a bad run
+
+If a configuration produced bogus numbers (e.g. an external interruption), you can either:
+
+```bash
+# Option A: remove all failed rows (passed=false)
+bash clean_runs_csv.sh
+
+# Option B: delete the whole CSV and re-run from scratch
+mv results/runs.csv results/runs.csv.bak
+# then sbatch whichever benches you want
+```
+
 ---
 
 # What gets tested
@@ -192,95 +265,24 @@ The console output (`analyze.py`) also prints full per-config tables and a "best
 
 # Visualization
 
-The benchmark binaries have `OUT_FREQ=-1` (no I/O) to avoid timing distortion. A separate viz binary with NetCDF output is built on demand. **All 5 variants can be visualized** (CPU: serial / mpi / openmp ; GPU: openmp45 / openacc) — the only difference between them is the compute kernels, the output should be physically identical (modulo floating-point ordering).
-
-## Choose a size + variant
+The benchmark binaries have `OUT_FREQ=-1` (no I/O) to avoid timing distortion. A separate viz binary with NetCDF output is built on demand:
 
 ```bash
-# default: easy size + mpi variant (CPU)
-sbatch slurm/make_video_data.sbatch
+# 1. Compile + run viz binary at chosen size
+sbatch slurm/make_video_data.sbatch                    # default: easy
+VIZ_SIZE=medium sbatch slurm/make_video_data.sbatch
+VIZ_SIZE=hard   sbatch slurm/make_video_data.sbatch    # slowest
 
-# pick size
-VIZ_SIZE=medium  sbatch slurm/make_video_data.sbatch
-VIZ_SIZE=hard    sbatch slurm/make_video_data.sbatch
-
-# pick variant (CPU)
-VIZ_VARIANT=serial  sbatch slurm/make_video_data.sbatch
-VIZ_VARIANT=openmp  sbatch slurm/make_video_data.sbatch
-
-# pick variant (GPU)  — uses 1 GPU by default
-VIZ_VARIANT=openacc   sbatch slurm/make_video_data.sbatch
-VIZ_VARIANT=openmp45  sbatch slurm/make_video_data.sbatch
-
-# combine
-VIZ_SIZE=hard VIZ_VARIANT=openacc sbatch slurm/make_video_data.sbatch
-
-# fine-grained tuning (custom grid, more frames, more GPUs)
-VIZ_SIZE=medium VIZ_VARIANT=openacc VIZ_GPUS=4 \
-    sbatch slurm/make_video_data.sbatch
-
-VIZ_SIZE=custom VIZ_NX=1200 VIZ_NZ=600 VIZ_SIM_TIME=30 VIZ_OUT_FREQ=0.25 \
-    VIZ_VARIANT=openacc sbatch slurm/make_video_data.sbatch
-```
-
-## Render the MP4
-
-After the sbatch finishes, on the **login node**:
-
-```bash
+# 2. Render mp4 on login node
 source activate.sh
+python3 scripts/make_video.py --size easy
+python3 scripts/make_video.py --size medium --var theta --fps 15
 
-# default: easy + mpi
-python3 scripts/make_video.py
-
-# match what you generated
-python3 scripts/make_video.py --size medium --variant openacc
-python3 scripts/make_video.py --size hard   --variant openmp45
-
-# single variable, higher FPS, GIF instead of MP4
-python3 scripts/make_video.py --size medium --variant openacc \
-    --var theta --fps 15 \
-    --out results/viz/theta_medium_openacc.gif
-
-# custom paths
-python3 scripts/make_video.py --nc /path/to/output.nc --out /path/to/anim.mp4
+# 3. Copy off-cluster
+scp <user>@<host>:/work/<user>/miniWeather-bench/results/viz/animation_easy.mp4 ./
 ```
 
-## Output files
-
-Each (size × variant) combination has its own file, so multiple can coexist:
-
-```
-results/viz/
-├── output_easy_mpi.nc            ← raw simulation data
-├── animation_easy_mpi.mp4        ← rendered video
-├── output_medium_openacc.nc
-├── animation_medium_openacc.mp4
-└── output_hard_openmp45.nc
-    └── ...
-```
-
-Default output: 2×2 panel showing **theta** (potential temperature pert.), **wwnd** (vertical wind), **dens** (density pert.), **uwnd** (horizontal wind). With `DATA_SPEC_THERMAL`, a warm bubble rises and develops a mushroom-cap plume — visually identical across variants (a useful cross-check that GPU offload produces the right physics).
-
-## Copy MP4 off-cluster
-
-```bash
-scp <user>@<host>:/work/<user>/miniWeather-bench/results/viz/animation_medium_openacc.mp4 ./
-```
-
-## Env-var reference for `make_video_data.sbatch`
-
-| variable | default | meaning |
-|----------|---------|---------|
-| `VIZ_SIZE` | `easy` | `easy` / `medium` / `hard` / `custom` |
-| `VIZ_VARIANT` | `mpi` | `serial` / `mpi` / `openmp` / `openmp45` / `openacc` |
-| `VIZ_NX`, `VIZ_NZ` | (from preset) | grid size; required if `VIZ_SIZE=custom` |
-| `VIZ_SIM_TIME` | `20` | simulated seconds |
-| `VIZ_OUT_FREQ` | `0.5` | NetCDF output every N sim-seconds (gives ~40 frames) |
-| `VIZ_RANKS` | 8 (CPU) / =`VIZ_GPUS` (GPU) | MPI ranks |
-| `VIZ_GPUS` | `1` (GPU variants only) | number of GPUs |
-
-> **Why visualize multiple variants?** Beyond a sanity check that the bubble plume looks right, comparing `output_hard_mpi.nc` against `output_hard_openacc.nc` is the cleanest way to confirm the GPU offload is computing the same physics as the CPU code. If they look different, something's broken.
+Outputs: `results/viz/output_<size>.nc` and `results/viz/animation_<size>.mp4`. With `DATA_SPEC_THERMAL`, a warm bubble rises and develops a mushroom-cap plume.
 
 ---
 
